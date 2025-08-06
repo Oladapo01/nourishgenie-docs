@@ -342,7 +342,7 @@ GET    /profile               # User profile
 - `users`: User accounts and credentials
 - `failed_login_attempts`: Security monitoring
 
-> 📖 **Auth Service Documentation**: [`/auth_service/README.md`](https://github.com/Oladapo01/FoodTrackerApp/blob/main/backend/auth_service/README.md)
+> 📖 **Auth Service Documentation**: [`/auth_service/README.md`](auth_service.README.md)
 
 ### 2. User Service
 
