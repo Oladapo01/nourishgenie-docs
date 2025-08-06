@@ -342,7 +342,7 @@ GET    /profile               # User profile
 - `users`: User accounts and credentials
 - `failed_login_attempts`: Security monitoring
 
-> 📖 **Auth Service Documentation**: [`/auth_service/README.md`](backend/auth_service/README.md)
+> 📖 **Auth Service Documentation**: [`/auth_service/README.md`](https://github.com/Oladapo01/FoodTrackerApp/blob/main/backend/auth_service/README.md)
 
 ### 2. User Service
 
@@ -407,7 +407,7 @@ GET    /nutrition-summary        # Nutrition summary
 - `user_weekly_challenges`: User challenge participation
 - `user_statistics`: User analytics data
 
-> 📖 **User Service Documentation**: [`/user_service/README.md`](./user_service/README.md)
+> 📖 **User Service Documentation**: [`/user_service/README.md`](https://github.com/Oladapo01/FoodTrackerApp/blob/main/backend/user_service/README.md)
 
 ### 3. Image Service
 
@@ -437,7 +437,7 @@ GET    /health                # Service health check
 4. Confidence scoring
 5. Result caching and return
 
-> 📖 **Image Service Documentation**: [`/image_service/README.md`](./image_service/README.md)
+> 📖 **Image Service Documentation**: [`/image_service/README.md`](https://github.com/Oladapo01/FoodTrackerApp/blob/main/backend/image_service/README.md)
 
 ### 4. Subscription Service
 
@@ -468,7 +468,7 @@ POST   /webhook               # Stripe webhooks
 - **Premium Monthly**: Full analytics, export, advanced features
 - **Premium Yearly**: All premium features with discount
 
-> 📖 **Subscription Service Documentation**: [`/subscription_service/README.md`](./subscription_service/README.md)
+> 📖 **Subscription Service Documentation**: [`/subscription_service/README.md`](https://github.com/Oladapo01/FoodTrackerApp/blob/main/backend/subscription_service/README.md)
 
 ### 5. Email Service
 
@@ -498,7 +498,7 @@ GET    /health                # Service health check
 - Achievement notifications
 - Weekly summaries
 
-> 📖 **Email Service Documentation**: [`/email_service/README.md`](./email_service/README.md)
+> 📖 **Email Service Documentation**: [`/email_service/README.md`](https://github.com/Oladapo01/FoodTrackerApp/blob/main/backend/email_service/README.md)
 
 ### 6. API Gateway
 
@@ -520,7 +520,7 @@ GET    /health                # Service health check
 - Standard endpoints: Normal rate limiting (100 req/15min)
 - Email service: Internal access only
 
-> 📖 **API Gateway Documentation**: [`/api-gateway/README.md`](./api-gateway/README.md)
+> 📖 **API Gateway Documentation**: [`/api-gateway/README.md`](https://github.com/Oladapo01/FoodTrackerApp/blob/main/backend/api-gateway/README.md)
 
 ## 🗄️ Database Architecture
 
