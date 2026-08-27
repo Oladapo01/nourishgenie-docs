@@ -347,3 +347,8 @@ The items below are resolved production issues, kept here as a record of the rea
   * **Cache-Hit NameError**: On the cache-hit path, a variable used in the response was only ever assigned on the cache-miss path, so a cache hit raised an unbound-variable error and returned a 500 instead of the cached result. Fixed.
   * **SSE Headers Set After Return**: The code setting Server-Sent Event headers (including `Connection: keep-alive`) sat after a `return` statement and was therefore unreachable, so the streaming response was missing headers that affect client-side buffering behavior. Restructured so the headers are actually applied.
   * **Dead Duplicate Route**: `/submit-correction` was registered twice under different endpoint names — one forwarding corrections to the User Service, the other storing them locally for a planned custom-model training pipeline. Flask/Werkzeug silently resolves duplicate routes to whichever was registered first, so the local-storage handler never ran, and its backing table had not been receiving data despite the endpoint appearing to work end-to-end from the client's perspective.
+
+-----
+
+*Created: July 4, 2025*
+*Last Updated: August 27, 2026*
