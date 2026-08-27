@@ -1,6 +1,6 @@
 # Subscription Service
 
-This repository contains the Subscription Service, a dedicated microservice for the Food Tracker application backend. It is responsible for managing user subscriptions, payment profiles, handling billing logic, and integrating with external payment gateways like Stripe.
+This repository contains the Subscription Service, a dedicated microservice for the NourishGenie application backend. It is responsible for managing user subscriptions, payment profiles, handling billing logic, and integrating with external payment gateways like Stripe.
 
 -----
 
