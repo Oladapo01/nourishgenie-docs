@@ -13,11 +13,15 @@ The Image Service acts as the intelligent processing unit for user-uploaded food
 ## 2\. Features
 
   * **AI-Powered Food Analysis**: Integrates with **OpenAI's GPT-4 Vision API** to interpret food images and extract detailed nutritional information (dish name, calories, macros, portion size, ingredients).
+  * **Ingredient Detection, Recipe Generation, and Macro Suggestions**: Beyond single-image food analysis, the service also exposes endpoints for detecting ingredients in an image, generating recipes, and suggesting macro breakdowns — all backed by the same OpenAI integration and subject to the same subscription gate described below.
+  * **Server-Side Subscription Enforcement**: The four endpoints that spend OpenAI credit (`/analyze-food`, `/analyze-ingredients`, `/generate-recipes`, `/macro-suggestions`) are gated server-side on the caller's subscription/trial status, rather than relying on the client to hide the feature. The gate runs before the cache lookup, since the analysis cache is keyed on image hash rather than user — letting a cache hit through would give a lapsed subscriber free access to any previously-analyzed image.
+  * **Non-Food Rejection**: Images classified as not food are rejected with a distinct response rather than a generic analysis, with a per-user strike counter to limit repeated non-food submissions (a non-food image still costs one OpenAI call to classify, so unlimited free classification would be a cost hole).
   * **Image Pre-processing**: Resizes and converts images to optimize them for AI model input.
   * **Intelligent Caching**: Utilizes **Redis** to cache image analysis results based on image hashes, significantly reducing redundant AI API calls and improving response times for duplicate images.
   * **Food Entry Persistence**: Optionally saves the analyzed food data as a new food entry in the **User Service** for the authenticated user.
   * **Robust Error Handling**: Implements retries for OpenAI API calls using `tenacity` to handle transient network issues or API rate limits.
-  * **Authentication & Authorization**: Protects its endpoints using **JWT verification**, ensuring only authenticated users can submit images for analysis.
+  * **Authentication & Authorization**: Protects its endpoints using **JWT verification**, ensuring only authenticated users can submit images for analysis. The one endpoint intended for internal service-to-service use accepts either a valid user JWT or a shared internal secret, rather than being open to any caller.
+  * **Upload Validation**: Enforces a maximum request size and validates that uploaded content is actually a well-formed image before it reaches the AI pipeline, rejecting oversized or malformed uploads early.
   * **Health Check**: Provides a `/health` endpoint with checks for Redis and OpenAI API key configuration, indicating service readiness.
   * **Secure Configuration**: Loads sensitive API keys and passwords from Docker secrets.
   * **Containerized Deployment**: Designed for easy deployment with Docker, including a custom entrypoint script for robust secret loading and service readiness checks.
@@ -234,7 +238,27 @@ The Image Service exposes the following RESTful API endpoints:
       "source": "cache" // or "api"
     }
     ```
-  * **Errors**: `400 Bad Request` (No image file), `401 Unauthorized` (Invalid/missing token), `500 Internal Server Error` (OpenAI API errors, image processing errors, User Service errors).
+  * **Errors**: `400 Bad Request` (No image file), `401 Unauthorized` (Invalid/missing token), `403 Forbidden` (`subscription_required` — caller is neither subscribed nor in trial), `413 Payload Too Large` (upload exceeds the configured size limit), `422 Unprocessable Entity` (`not_food` — image classified as non-food), `429 Too Many Requests` (`too_many_non_food_uploads` — non-food strike limit reached), `500 Internal Server Error` (OpenAI API errors, image processing errors, User Service errors).
+  * **Note**: The subscription check runs before the cache lookup and before the OpenAI call, and fails open (allows the request) if the subscription service is unreachable, rather than blocking food logging during an unrelated outage.
+
+#### `POST /analyze-ingredients`
+
+  * **Description**: Detects the ingredients present in an uploaded food image via OpenAI, independent of full nutritional analysis. Subject to the same subscription gate, upload validation, and caching pattern as `/analyze-food`.
+  * **Authorization**: Requires a valid **Access Token**.
+  * **Request Content**: `multipart/form-data` with an `image` field.
+  * **Errors**: Same error set as `/analyze-food`.
+
+#### `POST /generate-recipes`
+
+  * **Description**: Generates recipe suggestions via OpenAI, streamed as Server-Sent Events. Subject to the same subscription gate as `/analyze-food`.
+  * **Authorization**: Accepts either a valid **Access Token** or an internal-service secret (`X-Internal-Secret` header, constant-time compared) — a dual-accept design rather than opening the endpoint to unauthenticated callers.
+  * **Errors**: `401 Unauthorized` (neither a valid token nor a valid internal secret), `403 Forbidden` (`subscription_required`, for user-token callers).
+
+#### `POST /macro-suggestions`
+
+  * **Description**: Suggests a macro breakdown via OpenAI. Subject to the same subscription gate, upload validation, and caching pattern as `/analyze-food`.
+  * **Authorization**: Requires a valid **Access Token**.
+  * **Errors**: Same error set as `/analyze-food`.
 
 ### 5.2. Health Check
 
@@ -260,13 +284,17 @@ The Image Service exposes the following RESTful API endpoints:
 
   * **Secrets Management**: `OPENAI_API_KEY`, `REDIS_PASSWORD`, and `JWT_SECRET` are securely loaded from Docker secrets at container startup using the `docker-entrypoint.sh` script. This prevents sensitive information from being exposed in environment variables or codebase.
   * **Non-Root User**: The application runs as a non-root `appuser` within the container, limiting potential damage in case of a security breach.
-  * **JWT Protection**: All critical endpoints (`/analyze-food`) are protected by JWT verification (`token_required` decorator), ensuring that only authenticated users can access the service.
+  * **JWT Protection**: Endpoints that serve individual users (`/analyze-food`, `/analyze-ingredients`, `/macro-suggestions`) are protected by JWT verification (`token_required` decorator), ensuring that only authenticated users can access the service.
+  * **Resolved: Unauthenticated Streaming Endpoint**: `/generate-recipes` was previously reachable without any authentication — a publicly-accessible endpoint that streamed GPT-4o output on request, at the service's OpenAI expense, despite its own docstring describing it as internal-only. It now requires either a valid user JWT or a shared internal secret, compared using a constant-time comparison to avoid a timing side-channel.
+  * **Server-Side Subscription Enforcement**: Client-side paywalls can be bypassed by any client that skips the check, so entitlement (`isSubscribed OR isInTrialPeriod`) is verified server-side on every OpenAI-spending request, cached briefly (90s) with a longer stale-value fallback (24h) so a subscription-service blip doesn't lock out paying users. The gate deliberately runs before the cache lookup — the analysis cache is a global, image-hash-keyed cache with no per-user scoping, so a cache hit is still paid-tier output and must be gated the same as a fresh OpenAI call.
   * **Rate Limiting (External)**: The API Gateway applies a standard rate limit to the `/image-service/*` route to protect against abuse and control costs for external API calls (e.g., OpenAI).
+  * **Upload Size and Content Validation**: Requests are rejected with `413` before the body is buffered if the declared `Content-Length` exceeds the configured limit, and uploaded files are validated as well-formed images (not just checked by filename or declared content type) before being sent to OpenAI.
+  * **Non-Food Abuse Control**: An image classified as non-food still costs one OpenAI call to classify, so repeated non-food submissions from the same user are capped via a Redis-backed strike counter (failing open — i.e. not blocking the request — if Redis is unavailable, since availability of the core feature takes priority over this specific abuse control).
   * **Image Pre-processing**: Images are resized before sending to OpenAI, which can help mitigate potential resource exhaustion or excessively large API requests.
-  * **Input Validation**: Flask's request handling and internal logic ensure that only valid image files are processed.
   * **API Key Protection**: OpenAI API key is handled securely and not exposed to the client.
   * **Timeouts**: Requests to external APIs (OpenAI, User Service) include timeouts to prevent hanging connections and improve resilience.
   * **Retry Mechanism**: The `tenacity` library adds robustness to OpenAI API calls, automatically retrying transient failures with exponential backoff.
+  * **Error Message Hardening**: Endpoints were audited to stop returning raw exception text (`str(e)`) in API responses, logging the full exception server-side (`exc_info=True`) while returning a generic message to the client.
 
 -----
 
@@ -306,3 +334,16 @@ The Image Service exposes the following RESTful API endpoints:
   * **Network Connectivity**: Verify connectivity between the Image Service container and Redis, OpenAI API endpoints, and the User Service.
   * **Gunicorn Workers**: Monitor Gunicorn worker processes. If `workers` or `threads` are too low, requests might queue up; if too high, it might exhaust resources. Adjust based on load and available resources. The `timeout` setting prevents workers from hanging indefinitely.
 
+-----
+
+## 9\. Production Hardening & Incident History
+
+The items below are resolved production issues, kept here as a record of the reasoning behind current behavior rather than as a changelog of code diffs.
+
+  * **Nutrition Data Corruption (Q&A Follow-Up Path)**: A conditional guard intended to trigger a text-based nutrition retry only when an item's calorie value was genuinely zero was mis-indented, so the retry ran unconditionally for every item in the Q&A follow-up path. The retry's result then overwrote the item unconditionally — meaning vision-derived calorie and macro values (the core output of the AI analysis) were being silently replaced with a text-only estimate that never saw the image, for every item, on every Q&A-path request. The equivalent code in the non-Q&A path had the same guard correctly nested, which is what surfaced the discrepancy. Fixed by aligning the Q&A path with the already-correct non-Q&A path.
+  * **Unauthenticated Streaming Endpoint (Critical)**: `/generate-recipes` had no authentication despite its own docstring describing it as internal-only, making it a publicly reachable endpoint that would stream GPT-4o output at the service's expense for any caller. Closed with dual-accept authentication (user JWT or internal secret).
+  * **Duplicated OpenAI Call**: `/analyze-ingredients` called the OpenAI ingredient-detection function twice per request, discarding the first result — doubling both latency and OpenAI spend on every request to that endpoint. Removed the redundant call.
+  * **Cache Key Mismatch**: The same endpoint's cache write used a different key than its cache read, so every request was a cache miss regardless of whether the image had been analyzed before — silently defeating the caching layer's purpose. Fixed so the write uses the same key the read checks.
+  * **Cache-Hit NameError**: On the cache-hit path, a variable used in the response was only ever assigned on the cache-miss path, so a cache hit raised an unbound-variable error and returned a 500 instead of the cached result. Fixed.
+  * **SSE Headers Set After Return**: The code setting Server-Sent Event headers (including `Connection: keep-alive`) sat after a `return` statement and was therefore unreachable, so the streaming response was missing headers that affect client-side buffering behavior. Restructured so the headers are actually applied.
+  * **Dead Duplicate Route**: `/submit-correction` was registered twice under different endpoint names — one forwarding corrections to the User Service, the other storing them locally for a planned custom-model training pipeline. Flask/Werkzeug silently resolves duplicate routes to whichever was registered first, so the local-storage handler never ran, and its backing table had not been receiving data despite the endpoint appearing to work end-to-end from the client's perspective.
