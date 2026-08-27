@@ -1,6 +1,6 @@
 # Image Service
 
-This repository contains the Image Service, a vital microservice for the Food Tracker application backend. Its primary function is to leverage AI for analyzing food images, extracting nutritional information, and providing meal suggestions. It integrates with a commercial vision-language AI API, uses Redis for caching analysis results, and interacts with the User Service to save food entries.
+This repository contains the Image Service, a vital microservice for the NourishGenie application backend. Its primary function is to leverage AI for analyzing food images, extracting nutritional information, and providing meal suggestions. It integrates with a commercial vision-language AI API, uses Redis for caching analysis results, and interacts with the User Service to save food entries.
 
 -----
 
