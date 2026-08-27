@@ -14,6 +14,7 @@ The Auth Service is a critical component in the Food Tracker microservices ecosy
 
   * **User Registration**: Allows new users to create accounts with strong password validation.
   * **User Login**: Authenticates users and issues secure **JWT access and refresh tokens**.
+  * **OAuth Login (Google / Apple)**: Accepts a provider-issued ID token, cryptographically verifies it against the provider's published JWKS before trusting any claim in it, and issues the same access/refresh token pair as password login. New OAuth users are flagged so the client can route them through onboarding.
   * **Token Refreshment**: Enables clients to obtain new access tokens using refresh tokens without re-authenticating.
   * **Password Management**:
       * **Change Password**: Allows authenticated users to update their password.
@@ -40,7 +41,7 @@ The Auth Service is a critical component in the Food Tracker microservices ecosy
       * `psycopg2`: Synchronous PostgreSQL driver used in `init_db.py`.
   * **Redis**: In-memory data store for caching, rate limiting, token blacklisting, and message queuing (Pub/Sub).
       * `redis-py`: Python client for Redis.
-  * **`python-jose[cryptography]` / `PyJWT`**: For JSON Web Token (JWT) creation and verification.
+  * **`python-jose[cryptography]` / `PyJWT`**: For JSON Web Token (JWT) creation and verification. `PyJWKClient` is used specifically to fetch and cache Google's and Apple's public JWKS for verifying OAuth ID token signatures.
   * **`passlib`**: For secure password hashing (bcrypt).
   * **`Pydantic`**: For data validation and settings management.
   * **Docker**: For containerization and deployment.
@@ -271,6 +272,13 @@ The Auth Service exposes the following RESTful API endpoints:
     ```
   * **Errors**: `409 Conflict` (User already exists), `422 Unprocessable Entity` (Invalid password format), `500 Internal Server Error`.
 
+#### `POST /oauth/login`
+
+  * **Description**: Authenticates a user via a Google or Apple ID token. The token's signature and claims (issuer, audience, expiry) are verified server-side against the provider's published JWKS before the token is trusted — the service does not rely on the client's assertion that the token is valid. On success, issues the same access/refresh token pair as `/login`. The response indicates whether the account was just created (`is_new_user`) so the client can route first-time OAuth users through onboarding rather than assuming an existing profile.
+  * **Response (200 OK)**: Same shape as `POST /login`, plus an `is_new_user` boolean.
+  * **Errors**: `401 Unauthorized` (token fails provider signature/claim verification), `500 Internal Server Error`.
+  * **Note**: This endpoint previously issued tokens without verifying the ID token against the provider — a critical account-takeover vulnerability, since any caller could submit an unverified token claiming to be any user. This was fixed by validating every OAuth token server-side via `PyJWKClient` before a session is issued.
+
 #### `POST /refresh`
 
   * **Description**: Exchanges a valid refresh token for a new access token.
@@ -291,6 +299,7 @@ The Auth Service exposes the following RESTful API endpoints:
     }
     ```
   * **Errors**: `401 Unauthorized` (Invalid/expired/blacklisted refresh token), `404 Not Found` (User associated with token not found), `500 Internal Server Error`.
+  * **Reliability Note**: The blacklist check against Redis is guarded — if Redis is unreachable, the endpoint logs the failure and fails open (treats the token as not blacklisted) rather than returning a 500 to every client. This was a deliberate availability trade-off: a Redis outage previously broke token refresh for every active session; the guard keeps the service usable during a Redis incident at the cost of not enforcing blacklist revocation until Redis recovers.
 
 #### `PUT /change-password`
 
@@ -440,13 +449,17 @@ The Auth Service implements several security best practices:
       * **Short-lived Access Tokens**: Access tokens have a short expiration (default 30 minutes) to minimize the impact of token compromise.
       * **Refresh Tokens**: Longer-lived refresh tokens are used for obtaining new access tokens, reducing the need for frequent re-login.
       * **Token Blacklisting**: Upon logout or password reset, access tokens are added to a Redis blacklist with a TTL matching their original expiration. This immediately revokes their validity.
+  * **OAuth Token Verification**: Google and Apple ID tokens submitted to `/oauth/login` are verified server-side against the provider's published JWKS (via `PyJWKClient`) — signature, issuer, and audience are all checked before the token is trusted. This closed a previously-shipped account-takeover vulnerability where the endpoint issued session tokens for any submitted ID token without verifying it against the provider, meaning a forged or replayed token could be used to authenticate as any user.
+  * **Auth-Only Password Constraint**: Because OAuth accounts have no password, `users.password` is nullable at the schema level, enforced by a conditional `CHECK` constraint that still requires a password for email/password accounts. This avoids the common anti-pattern of storing a dummy/placeholder password for OAuth users.
   * **Password Reset Flow Security**:
       * **One-Time Codes**: 6-digit verification codes are randomly generated and have a strict 15-minute expiration in Redis.
       * **No Email Enumeration**: The `forgot-password` endpoint returns a generic success message regardless of email existence to prevent attackers from discovering valid user emails.
       * **Code Invalidation on Use**: Once a password reset is successful, the verification code is immediately deleted from Redis.
-  * **Rate Limiting on Login**: The `login` endpoint implements a check for recent failed attempts for a given email from the database, preventing rapid brute-forcing.
+  * **Rate Limiting on Login**: The `login` endpoint checks recent failed attempts for a given email *before* verifying the submitted credentials, and rejects the request once the threshold is exceeded regardless of whether the password is correct. This ordering matters: an earlier version checked the lockout after credential verification, which meant a correct password could succeed no matter how many prior failed attempts had occurred, defeating the purpose of the lockout. The check was moved ahead of verification to close that gap.
   * **Non-Root User**: The Dockerfile creates and runs the application as a non-root `appuser` for enhanced container security.
   * **CORS**: Configured to allow all origins in development (`allow_origins=["*"]`), but **must be restricted to specific trusted origins in production** to prevent cross-site request forgery (CSRF) and other attacks.
+  * **Consistent Database Targeting**: `main.py` and `init_db.py` previously parsed `DATABASE_URL` differently, which allowed the running application to connect to a different database than the one the schema-initialization script had set up — a class of bug that is easy to introduce and easy to miss until a specific environment surfaces it. The parsing was unified so both always resolve to the same database.
+  * **Error Message Hardening**: Endpoints were audited to stop returning raw exception text (`str(e)`) in API responses, replacing it with generic, safe error messages so internal implementation details (stack traces, query fragments, library errors) aren't leaked to clients.
   * **Secure Coding Practices**: FastAPI's Pydantic models enforce schema validation, reducing the risk of injection attacks and invalid data processing.
 
 -----
@@ -454,7 +467,8 @@ The Auth Service implements several security best practices:
 ## 7\. Project Structure
 
   * **`main.py`**: The primary FastAPI application file, containing all API endpoints, business logic, dependency injections, and core configurations (database, Redis, JWT).
-  * **`init_db.py`**: A standalone script executed at container startup to ensure the PostgreSQL database schema (tables, indexes) is initialized before the main application starts. It includes a wait-for-database mechanism.
+  * **`init_db.py`**: A standalone script executed at container startup to ensure the PostgreSQL database schema (tables, indexes) is initialized before the main application starts. It originally included a DNS-based wait-for-database check (`socket.gethostbyname()`), which was removed after it was identified as the cause of startup crash loops on Railway: Railway's private networking is IPv6-only, and `socket.gethostbyname()` only resolves IPv4 addresses, so the readiness check failed even when the database was reachable.
+  * **`run_migrations.py`**: Applies versioned schema migrations (e.g. making `users.password` nullable for OAuth accounts) using a Postgres advisory lock so that concurrent container starts don't race to apply the same migration twice.
   * **`Dockerfile`**: Defines the Docker image for the Auth Service, including dependencies, environment setup, non-root user creation, and the startup command.
   * **`requirements.txt`**: Lists all Python dependencies required by the service.
   * **`secrets/`**: (Conceptual directory for Docker Compose) Contains sensitive files like `db_password.txt`, `redis_password.txt`, `jwt_secret.txt` which are mounted as Docker secrets into the container.
@@ -474,7 +488,7 @@ The `init_db.py` script creates the following tables:
   * **`users`**:
       * `id` (`VARCHAR(36)` PK)
       * `email` (`VARCHAR(255)` UNIQUE NOT NULL)
-      * `password` (`VARCHAR(255)` NOT NULL) - Hashed password
+      * `password` (`VARCHAR(255)`, nullable) - Hashed password for email/password accounts. Nullable to support OAuth accounts, which have no password; enforced by a migration-added conditional `CHECK` constraint requiring a password only for non-OAuth accounts.
       * `name` (`VARCHAR(255)`)
       * `is_active` (`BOOLEAN` DEFAULT TRUE)
       * `created_at` (`TIMESTAMP WITH TIME ZONE` NOT NULL)
@@ -505,3 +519,15 @@ The `init_db.py` script creates the following tables:
   * **Structured Logging**: Configure log aggregation tools (e.g., Loki, Elasticsearch) to collect and analyze logs from the service. This is vital for debugging issues in production.
   * **Metrics (Future)**: Integrate a Prometheus client library to expose detailed metrics (request counts, latency, error rates) for scraping by Prometheus and visualization in Grafana.
 
+-----
+
+## 10\. Production Hardening & Incident History
+
+The items below are resolved production issues, kept here as a record of the reasoning behind current behavior rather than as a changelog of code diffs.
+
+  * **OAuth Account-Takeover Vulnerability (Critical)**: `/oauth/login` originally issued session tokens for any submitted ID token without verifying it against the issuing provider (Google/Apple). This meant the endpoint trusted claims it had no way to confirm — a forged or replayed token could authenticate as any user. Fixed by verifying every OAuth token server-side against the provider's JWKS (`PyJWKClient`) before a session is created.
+  * **Database Connection Divergence**: `main.py` and `init_db.py` parsed `DATABASE_URL` differently, so the running service and the schema-initialization script could resolve to different databases in some environments. Unified the parsing so both always target the same database — a bug of this kind is silent until it isn't, and is disproportionately costly to diagnose in production.
+  * **IPv6-Only Networking Incompatibility**: `init_db.py`'s startup readiness check used `socket.gethostbyname()`, which is IPv4-only. Railway's private network is IPv6-only, so the check failed unconditionally and caused startup crash loops even when the database was healthy and reachable. Removed the IPv4-only check.
+  * **Login Lockout Ordering**: The failed-login-attempt check was being evaluated after credential verification rather than before it, so a correct password bypassed the lockout regardless of how many prior failed attempts existed. Reordered so the lockout check gates access before credentials are verified.
+  * **Redis-Unavailable Fail-Open Decision**: The refresh-token blacklist check against Redis was unguarded, so a Redis outage returned `500` on every token refresh — effectively logging out every active user during an unrelated infrastructure incident. Guarded the check to log and fail open (treat as not blacklisted) when Redis is unreachable, trading strict blacklist enforcement during an outage for continued service availability, a deliberate and documented trade-off rather than an oversight.
+  * **Error Message Leakage**: Raw exception text (`str(e)`) was being returned directly in some API error responses. Replaced with generic, safe messages so internal implementation details aren't exposed to clients.
