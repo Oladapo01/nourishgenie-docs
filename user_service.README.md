@@ -1,6 +1,6 @@
 # User Service
 
-This repository contains the User Service, a core microservice for the NourishGenie application backend. It is responsible for managing user-specific data, including profiles, preferences, food entries, health metrics, and achievements (badges). It integrates with PostgreSQL for persistent data, MinIO for object storage (images), and interacts with the Auth Service for user authentication.
+This repository contains the User Service, a core microservice for the NourishGenie application backend. It is responsible for managing user-specific data, including profiles, preferences, food entries, health metrics, achievements (badges), and AI-generated meal suggestions. It integrates with PostgreSQL for persistent data, MinIO for object storage (images), an AI/LLM provider for personalized meal suggestions, and interacts with the Auth Service for user authentication.
 
 -----
 
@@ -16,6 +16,7 @@ The User Service acts as the central hub for all user-centric data within the No
   * **Onboarding Data**: Manages and processes initial user health and fitness data (age, gender, height, weight, goals, activity level) to calculate personalized nutrition goals.
   * **Food Entry Tracking**: Allows users to add, retrieve, and delete daily food entries with detailed nutritional information.
   * **Nutrition Summary & Goals**: Provides aggregated nutrition summaries for specific date ranges and allows users to manage their personalized daily nutrition goals.
+  * **AI-Powered Meal Suggestions**: Generates personalized food suggestions per meal type (breakfast/lunch/dinner/snack), combining the user's nutrition goals, dietary restrictions, and fitness profile with a cuisine preference inferred from their own food-logging history. See Section 5.2 for the detail — this is more involved than a simple prompt wrapper.
   * **Achievement System (Badges)**: Awards users badges based on their activity (e.g., total entries, streaks), promoting engagement.
   * **MinIO Object Storage Integration**: Manages storage and retrieval of user-related images (e.g., profile pictures, food photos) in MinIO buckets.
   * **Inter-Service Communication**:
@@ -40,7 +41,8 @@ The User Service acts as the central hub for all user-centric data within the No
   * **MinIO**: High-performance, S3 compatible object storage for images.
       * `minio`: Python client for MinIO.
   * **`PyJWT`**: For JSON Web Token (JWT) verification.
-  * **`requests`**: For making HTTP requests to other microservices (e.g., Auth Service).
+  * **`requests`**: For making HTTP requests to other microservices (e.g., Auth Service) and to the AI provider used for meal suggestions.
+  * **AI/LLM Provider**: A commercial large language model API, used by `/food-suggestions` to generate personalized meal ideas (kept vendor-neutral in this document, consistent with the Image Service).
   * **`Pillow (PIL)`**: (Though not directly used in `app.py` for image processing here, its presence suggests potential future use or a dependency of `minio` in some setups, but actual image processing is handled by Image Service).
   * **Docker**: For containerization and deployment.
 
@@ -483,7 +485,25 @@ The User Service exposes the following RESTful API endpoints:
     ```
   * **Errors**: `401 Unauthorized`, `500 Internal Server Error`.
 
-### 5.4. Account Actions (Forwarded to Auth Service)
+### 5.4. AI Meal Suggestions
+
+#### `GET /food-suggestions`
+
+  * **Description**: Generates personalized food suggestions for a given meal type, combining the user's nutrition goals, dietary restrictions, and onboarding fitness profile (activity level, current/target weight) with a cuisine preference inferred from their own recent food-logging history — rather than a static or generic prompt.
+  * **Authorization**: Requires a valid **Access Token**.
+  * **Query Parameters**:
+      * `meal_type`: (Optional, default `lunch`) One of `breakfast`, `lunch`, `dinner`, `snack`.
+  * **Response (200 OK)**: A JSON array of suggestion objects, each with a name, description, macros (calories/protein/carbs/fat), preparation time, ingredient list, a short explanation of why it fits the user, and step-by-step cooking instructions.
+  * **Errors**: `401 Unauthorized`, `500 Internal Server Error`. On an AI-provider failure, the endpoint deliberately returns `200` with an **empty array** rather than a `500` — a fetch failure degrades to "no suggestions right now" on the client rather than an error state, since this endpoint is a value-add on top of core logging functionality, not something logging itself depends on.
+  * **How the personalization works**:
+      * **Cuisine detection**: The user's last 50 food entries (within 30 days) are matched against a keyword dictionary covering roughly 90 cuisines across Africa, the Middle East, South/East/Southeast Asia, Europe, the Americas, and Oceania, producing a primary cuisine, up to three secondary cuisines, and a confidence score based on how concentrated the user's history is in one cuisine. A low-confidence result (a genuinely varied eater) is treated differently from a high-confidence one — see below.
+      * **Confidence-scaled authenticity**: At high confidence (>0.7), the prompt instructs the model to suggest only authentic dishes from the detected cuisine; at moderate confidence, a mix of traditional and fusion; at low confidence, broader international variety. This avoids the failure mode of assuming a preference from thin evidence.
+      * **Repetition avoidance**: The same recent-meals list used for cuisine detection is also passed to the model with an explicit instruction not to repeat those dishes.
+      * **Meal-type and calorie awareness**: Separate guidance blocks constrain typical calorie range and preparation-time expectations per meal type (e.g. a lighter, faster-prep breakfast vs. a fuller, more involved dinner), and the model is instructed to keep returned macros consistent with typical portions for that meal type.
+      * **Recipe depth by dish complexity**: Rather than a flat instruction-length target, the prompt encodes minimum step counts and specific technique requirements per dish and cuisine (for example, a minimum step count and technique checklist for Nigerian egusi soup, jollof rice, or Indian biryani) so a genuinely multi-stage traditional dish doesn't get flattened into a generic 3-step recipe.
+      * **Structured output**: The model is required to return a specific JSON shape; the response is parsed defensively (tolerating a markdown-fenced code block around the JSON, and both a bare array and an object wrapping the array) before being returned to the client.
+
+### 5.5. Account Actions (Forwarded to Auth Service)
 
 These endpoints primarily act as proxies, forwarding requests to the Auth Service to centralize user authentication and account deletion logic.
 
@@ -511,7 +531,7 @@ These endpoints primarily act as proxies, forwarding requests to the Auth Servic
   * **Response (200 OK)**: Always returns success to the client, even if Auth Service call fails, to ensure client-side logout.
   * **Errors**: `401 Unauthorized`, `500 Internal Server Error` (backend error, but client still gets success).
 
-### 5.5. MinIO Image Serving
+### 5.6. MinIO Image Serving
 
 #### `GET /images/<bucket>/<filename>`
 
@@ -522,7 +542,7 @@ These endpoints primarily act as proxies, forwarding requests to the Auth Servic
   * **Response (200 OK)**: Image file with appropriate `Content-Type`.
   * **Errors**: `404 Not Found` (Image or bucket not found), `500 Internal Server Error`.
 
-### 5.6. Health Check
+### 5.7. Health Check
 
 #### `GET /health`
 
@@ -652,6 +672,11 @@ The `init_db.py` script ensures the following tables are created and managed by 
 
 The items below are resolved production issues, kept here as a record of the reasoning behind current behavior rather than as a changelog of code diffs.
 
-  * **Nutrition Goal Validation Bypass**: `PUT /nutrition-goals` and `PUT /profile` both write the same `nutrition_goals` column, but only the former validated its input (calorie/macro range checks). The latter serialized whatever was submitted directly into the database with no checks at all, so the range enforcement on the dedicated endpoint was not actually enforced - any client could bypass it by using `/profile` instead. Fixed by defining the bounds once and sharing them between both write paths, removing the possibility of the two drifting apart again.
+  * **Nutrition Goal Validation Bypass**: `PUT /nutrition-goals` and `PUT /profile` both write the same `nutrition_goals` column, but only the former validated its input (calorie/macro range checks). The latter serialized whatever was submitted directly into the database with no checks at all, so the range enforcement on the dedicated endpoint was not actually enforced — any client could bypass it by using `/profile` instead. Fixed by defining the bounds once and sharing them between both write paths, removing the possibility of the two drifting apart again.
   * **Unvalidated Numeric Input**: Several endpoints performed direct type coercion or comparison on client-supplied values (e.g. `int(data.get('calories'))`, then a range comparison against that result) with no guard against non-numeric input. A non-numeric value raised an unhandled exception that surfaced as a generic `500` rather than a client-facing `400`. Replaced with shared validation helpers that raise a consistent, mapped error instead.
-  * **Parameterized Query Verification**: The service's one dynamically-assembled SQL statement (a partial-update `UPDATE` with a variable column list) was specifically audited for injection risk, since dynamic SQL assembly is a common source of it. Confirmed clean - the column list is built from fixed literals, not client input, and every value is parameterized - recorded here as a verified finding rather than left as an open question in a security checklist.
+  * **Parameterized Query Verification**: The service's one dynamically-assembled SQL statement (a partial-update `UPDATE` with a variable column list) was specifically audited for injection risk, since dynamic SQL assembly is a common source of it. Confirmed clean — the column list is built from fixed literals, not client input, and every value is parameterized — recorded here as a verified finding rather than left as an open question in a security checklist.
+
+-----
+
+*Created: July 4, 2025*
+*Last Updated: August 27, 2026 — added `GET /food-suggestions` (AI-powered, cuisine- and calorie-aware meal suggestions), consumed by the Android client's `MealsScreen`.*
