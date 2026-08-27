@@ -531,3 +531,8 @@ The items below are resolved production issues, kept here as a record of the rea
   * **Login Lockout Ordering**: The failed-login-attempt check was being evaluated after credential verification rather than before it, so a correct password bypassed the lockout regardless of how many prior failed attempts existed. Reordered so the lockout check gates access before credentials are verified.
   * **Redis-Unavailable Fail-Open Decision**: The refresh-token blacklist check against Redis was unguarded, so a Redis outage returned `500` on every token refresh — effectively logging out every active user during an unrelated infrastructure incident. Guarded the check to log and fail open (treat as not blacklisted) when Redis is unreachable, trading strict blacklist enforcement during an outage for continued service availability, a deliberate and documented trade-off rather than an oversight.
   * **Error Message Leakage**: Raw exception text (`str(e)`) was being returned directly in some API error responses. Replaced with generic, safe messages so internal implementation details aren't exposed to clients.
+
+-----
+
+*Created: July 4, 2026*
+*Last Updated: August 27, 2026*
