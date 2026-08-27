@@ -1,12 +1,12 @@
 # API Gateway: Documentation for an Evolving Microservices Architecture
 
-This document provides comprehensive and in-depth technical documentation for the Food Tracker application's API Gateway. It serves as the central entry point for all client interactions, orchestrating requests to various microservices, enforcing security policies, and providing a flexible foundation for future backend expansions.
+This document provides comprehensive and in-depth technical documentation for the NourishGenie application's API Gateway. It serves as the central entry point for all client interactions, orchestrating requests to various microservices, enforcing security policies, and providing a flexible foundation for future backend expansions.
 
 -----
 
 ## 1\. Architecture Overview
 
-The Food Tracker application is built on a robust, scalable microservices architecture. The API Gateway is the critical component that abstracts the complexity of the backend, offering a unified, secure, and performant interface to client applications.
+The NourishGenie application is built on a robust, scalable microservices architecture. The API Gateway is the critical component that abstracts the complexity of the backend, offering a unified, secure, and performant interface to client applications.
 
 \![Comprehensive Microservices Architecture Diagram - This diagram should clearly show:
 
