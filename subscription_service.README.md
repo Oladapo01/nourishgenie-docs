@@ -564,3 +564,8 @@ The items below are resolved production issues, kept here as a record of the rea
   * **Hardcoded Admin Key Default**: `ADMIN_API_KEY` had a literal fallback value in source, which would have granted admin (coupon-generation) access to anyone who read the codebase if the real key was ever left unset in the environment. Removed, replaced with a startup check that refuses to boot without a real key of sufficient length.
   * **Silent Price ID Misconfiguration**: Stripe price ID lookups fell back to placeholder values that don't exist in Stripe, so a misconfiguration only surfaced as a failure at charge time — after a user had entered card details. Startup validation now refuses to boot on a missing or placeholder price ID, moving the failure from a customer-facing charge error to a deploy-time check.
   * **Coupon Generation Worker Hang**: Batch coupon generation with a prefix of 8 or more characters left zero characters for the randomized suffix, so every generated code was identical to the prefix and the uniqueness-check loop never terminated, hanging the Gunicorn worker handling the (admin-only) request. Fixed by capping the prefix length.
+
+-----
+
+*Created: July 4, 2025*
+*Last Updated: August 27, 2026*
