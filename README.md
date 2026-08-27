@@ -173,7 +173,8 @@ graph TB
 | **Flask** | Web framework | 3.0+ |
 | **Python** | Programming language | 3.11+ |
 | **psycopg2** | PostgreSQL driver | Latest |
-| **Pillow** | Image processing | Latest |
+| **AI/LLM Provider** | Personalized meal suggestions (kept vendor-neutral) | — |
+| **MinIO client (`minio`)** | Object storage for profile/food images | Latest |
 
 #### Image Service
 | Technology | Purpose | Version |
@@ -295,6 +296,7 @@ sequenceDiagram
     participant User
     participant Image
     participant Subscription
+    participant AI as AI Provider(s)
     
     Client->>Gateway: POST /auth-service/login
     Gateway->>Auth: Forward request
@@ -309,10 +311,21 @@ sequenceDiagram
     
     Client->>Gateway: POST /image-service/analyze-food
     Gateway->>Image: Forward with image
-    Image->>Image: Process with vision AI provider
+    Image->>AI: Vision AI request
+    AI-->>Image: Food analysis
     Image-->>Gateway: Food analysis
     Gateway-->>Client: Analysis results
+
+    Client->>Gateway: GET /user-service/food-suggestions
+    Gateway->>User: Forward with user context
+    User->>User: Infer cuisine from recent food_entries
+    User->>AI: LLM request (goals, cuisine, recent meals)
+    AI-->>User: Suggestions (or none, on failure)
+    User-->>Gateway: Suggestions
+    Gateway-->>Client: Suggestions
 ```
+
+*Both the Image Service and the User Service call out to an AI provider independently — the Image Service for vision-based food recognition, the User Service for text-based meal suggestions. They are not routed through a shared internal AI gateway; each service makes its own call.*
 
 ### 1. Authentication Service
 
@@ -349,16 +362,17 @@ GET    /profile               # User profile
 
 ### 2. User Service
 
-**Purpose**: Manages user profiles, nutrition data, and food logging
+**Purpose**: Manages user profiles, nutrition data, food logging, and AI-generated meal suggestions
 
 **Key Features**:
 - User profile management
 - Food entry logging
 - Nutrition goal calculation
+- AI-powered meal suggestions, personalized by nutrition goals, dietary restrictions, and a cuisine preference inferred from the user's own food history
 - Achievement system (badges awarded automatically on food-entry activity, surfaced via `GET /profile`)
 - Onboarding flow
 
-**Technology**: Flask + Python + PostgreSQL + MinIO
+**Technology**: Flask + Python + PostgreSQL + MinIO + an AI/LLM provider (kept vendor-neutral, consistent with the Image Service)
 
 **Endpoints**:
 ```
@@ -373,6 +387,10 @@ GET    /food-entries          # Get food history
 DELETE /food-entries/{id}     # Delete food entry
 PUT    /nutrition-goals       # Update nutrition targets
 GET    /nutrition-summary     # Nutrition summary for a date range
+GET    /dashboard/summary     # Today's calorie/macro summary for a dashboard view
+
+# AI Meal Suggestions
+GET    /food-suggestions      # Personalized meal suggestions (?meal_type=breakfast|lunch|dinner|snack)
 
 # Image Serving
 GET    /images/{bucket}/{filename}  # Serve a stored image (profile picture, food photo)
@@ -381,6 +399,8 @@ GET    /images/{bucket}/{filename}  # Serve a stored image (profile picture, foo
 GET    /health
 ```
 *A standalone analytics/badges/streaks/challenges endpoint surface existed earlier in development and was removed during the backend hardening pass documented in this service's README; badge data is returned as part of `GET /profile` rather than through dedicated endpoints.*
+
+**How meal suggestions are personalized**: recent food-entry history (up to 50 entries, last 30 days) is matched against a keyword set covering roughly 90 cuisines to infer a primary cuisine and a confidence score, which scales how strictly the AI provider is instructed to stick to that cuisine; the same recent-meal list is used to avoid suggesting repeats; and recipe instruction depth is scaled to real dish complexity (e.g. a multi-stage traditional dish isn't flattened into a generic 3-step recipe) rather than a fixed length. On an AI-provider failure, the endpoint returns an empty list with `200` rather than a `500` — full details in the User Service README.
 
 **Database Schema**:
 - `users`: User profile information (synced from Auth Service)
@@ -1038,6 +1058,7 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 ### Current Version (v1.0)
 - ✅ Basic food logging
 - ✅ AI-powered food recognition
+- ✅ AI-powered, cuisine-aware, calorie-aware meal suggestions
 - ✅ Achievement system
 - ✅ Subscription management
 - ✅ Android and iOS clients
@@ -1053,9 +1074,9 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 - 📅 Analytics and reporting surface
 - 📅 Integration with fitness trackers
 - 📅 Nutritionist consultation features
-- 📅 Machine learning meal recommendations
 
 ---
 
-*Last Updated: July 2025*
+*Created: Jul4 4, 2025*
+*Last Updated: August 27, 2026*
 *Version: 1.0.0*
