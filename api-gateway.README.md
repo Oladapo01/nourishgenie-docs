@@ -93,6 +93,9 @@ Adding a new service, e.g., `Notification Service` on port `8086`, is straightfo
 
 This pattern ensures consistency and minimizes changes when scaling the architecture.
 
+**Resolved Production Issue — `pathRewrite` No-Op on Mounted Routes:**
+A production defect was identified in the Stripe webhook route (`/subscription-service/webhook`): Express strips the router's mount path (`/subscription-service`) from `req.path` before `http-proxy-middleware` evaluates `pathRewrite`, so the configured rewrite rule was silently a no-op and the webhook request was forwarded with an incorrect path. This was masked in testing because most routes under the same mount happened to tolerate the discrepancy, but it caused webhook delivery to fail against the downstream service in production. The fix moved the webhook route to a path where the rewrite is correctly applied, and highlighted a class of bug specific to proxying under mounted Express routers — now called out explicitly here so it isn't reintroduced when new webhook or callback routes are added.
+
 ### 2.2. Advanced Rate Limiting Strategies
 
 The API Gateway provides a multi-tiered rate-limiting approach using `express-rate-limit`.
@@ -120,10 +123,12 @@ keyGenerator: (req) => {
 
 This prioritizes common proxy/load balancer headers (`x-real-ip`, `x-forwarded-for`) to get the true client IP, falling back to the direct connection IP.
 
+**Per-User JWT-Keyed Rate Limiting (Implemented):**
+The original IP-based limiting had a production defect: behind Railway's networking layer, multiple distinct users could resolve to the same observed IP, causing a single shared rate-limit bucket to be applied across unrelated accounts. This was fixed by keying rate limits off the authenticated user's ID extracted from the JWT (falling back to IP-based keying for unauthenticated requests), so each user is limited independently regardless of network path. This closed a real production issue rather than a theoretical one — under the previous IP-keyed scheme, legitimate users sharing an egress IP could be denied service by another user's traffic.
+
 **Future Enhancements for Rate Limiting:**
 
   * **Distributed Rate Limiting**: For multi-instance deployments, consider using a shared Redis store for rate limit counters (`express-rate-limit` can be configured for this) to ensure limits are consistent across all API Gateway instances.
-  * **User-Specific Limits**: Implement rate limits per authenticated user (e.g., by extracting user ID from JWT) in addition to or instead of IP-based limits for specific sensitive operations.
   * **Burst Limits**: Add burst limiting to prevent sudden spikes of requests even within the rate limit window.
 
 ### 2.3. Request and Response Transformation
