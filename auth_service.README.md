@@ -1,12 +1,12 @@
 # Auth Service
 
-This repository contains the Authentication Service, a core microservice for the Food Tracker application backend. It is responsible for all aspects of user identity, authentication, authorization, and account management.
+This repository contains the Authentication Service, a core microservice for the NourishGenie application backend. It is responsible for all aspects of user identity, authentication, authorization, and account management.
 
 -----
 
 ## 1\. Overview
 
-The Auth Service is a critical component in the Food Tracker microservices ecosystem. It provides secure and robust mechanisms for user registration, login, password management (including reset), and token issuance. It interacts with **PostgreSQL** for persistent user data storage and **Redis** for ephemeral data like session management (JWT blacklisting) and password reset codes, and also for inter-service communication (email triggers).
+The Auth Service is a critical component in the NourishGenie microservices ecosystem. It provides secure and robust mechanisms for user registration, login, password management (including reset), and token issuance. It interacts with **PostgreSQL** for persistent user data storage and **Redis** for ephemeral data like session management (JWT blacklisting) and password reset codes, and also for inter-service communication (email triggers).
 
 -----
 
