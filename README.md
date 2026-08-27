@@ -5,7 +5,6 @@
 [![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=flat&logo=kotlin&logoColor=white)](https://kotlinlang.org/)
 [![Python](https://img.shields.io/badge/python-3670A0?style=flat&logo=python&logoColor=ffdd54)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=flat&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Spring Boot](https://img.shields.io/badge/spring-%236DB33F.svg?style=flat&logo=spring&logoColor=white)](https://spring.io/projects/spring-boot)
 [![Node.js](https://img.shields.io/badge/node.js-6DA55F?style=flat&logo=node.js&logoColor=white)](https://nodejs.org/)
 
 ## 📋 Table of Contents
@@ -28,13 +27,13 @@
 
 ## 🎯 Project Overview
 
-Nourish Genie is a comprehensive nutrition and wellness platform that empowers users to monitor their dietary habits, achieve health goals, and gain insights into their nutrition patterns. The application combines AI-powered food recognition, real-time analytics, gamification through achievements, and subscription-based premium features.
+Nourish Genie is a comprehensive nutrition and wellness platform that empowers users to monitor their dietary habits, achieve health goals, and gain insights into their nutrition patterns. The application combines AI-powered food recognition, an achievement system, and subscription-based premium features.
 
 ### Key Objectives
 - **Simplify Nutrition Tracking**: Use AI to identify food from photos and automatically log nutritional information
 - **Personalized Health Goals**: Calculate custom nutrition targets based on user's profile and fitness objectives
-- **Behavioral Insights**: Provide detailed analytics and trends to help users understand their eating patterns
-- **Motivation Through Gamification**: Achievement system with badges, streaks, and weekly challenges
+- **Behavioral Insights**: Help users understand their eating patterns through logged food history (a dedicated analytics surface is not part of the current backend — see Roadmap)
+- **Motivation Through Gamification**: Achievement system with badges (streaks and weekly challenges were part of an earlier design and are not in the current backend — see Roadmap)
 - **Sustainable Business Model**: Freemium model with subscription-based premium features
 
 ### Target Audience
@@ -51,39 +50,40 @@ Nourish Genie is a comprehensive nutrition and wellness platform that empowers u
 graph TB
     subgraph "Client Layer"
         A[Android App - Kotlin/Compose]
-        B[Future iOS App]
-        C[Future Web App]
+        A2[iOS App - SwiftUI]
     end
-    
+
+    subgraph "Edge"
+        CF[Cloudflare - DNS/CDN/WAF]
+    end
+
     subgraph "API Gateway Layer"
-        D[Nginx Load Balancer]
         E[API Gateway - Node.js/Express]
     end
-    
+
     subgraph "Microservices Layer"
         F[Auth Service - FastAPI/Python]
         G[User Service - Flask/Python]
-        H[Image Service - Spring Boot/Java]
-        I[Subscription Service - Spring Boot/Java]
-        J[Email Service - FastAPI/Python]
+        H[Image Service - Flask/Python]
+        I[Subscription Service - Flask/Python]
+        J[Email Service - Flask/Python]
     end
-    
+
     subgraph "Data Layer"
-        K[PostgreSQL - Multiple DBs]
+        K[PostgreSQL]
         L[Redis - Caching/Sessions]
         M[MinIO - Object Storage]
     end
-    
+
     subgraph "External Services"
-        N[OpenAI API - Food Recognition]
+        N[Vision AI Provider - Food Recognition]
         O[Stripe API - Payments]
         P[SMTP - Email Delivery]
     end
-    
-    A --> D
-    B --> D
-    C --> D
-    D --> E
+
+    A --> CF
+    A2 --> CF
+    CF --> E
     E --> F
     E --> G
     E --> H
@@ -97,9 +97,12 @@ graph TB
     H --> N
     I --> K
     I --> O
+    I -.->|webhook, bypasses gateway| O
     J --> L
     J --> P
 ```
+
+**Notes on this diagram versus an idealized one**: `Subscription Service`'s `/webhook` route is called directly by Stripe against the service's own Railway URL rather than through the API Gateway (see the Subscription Service README for why), which is why that edge is drawn separately. Both the Android and iOS clients are shipped; there is no web client at the time of writing beyond a marketing/landing page served separately from the API surface.
 
 ### Design Principles
 
@@ -124,22 +127,18 @@ graph TB
 ### Core Features
 - **📸 AI-Powered Food Recognition**: Take photos of meals for automatic nutritional analysis
 - **📊 Personalized Nutrition Goals**: Custom calorie and macro targets based on user profile
-- **📈 Real-Time Analytics**: Detailed insights into nutrition patterns and trends
-- **🏆 Achievement System**: Badges, streaks, and challenges to motivate healthy habits
+- **🏆 Achievement System**: Badges awarded on food-logging activity, surfaced via the user's profile
 - **📱 Intuitive Mobile Interface**: Modern, responsive design with smooth animations
 - **🔄 Offline Support**: Local data storage with automatic sync when online
 
 ### Premium Features (Subscription)
-- **📋 Advanced Analytics**: Export data, detailed reports, and historical trends
 - **🎯 Custom Goals**: Set specific targets beyond basic calorie counting
-- **💪 Integration Support**: Connect with fitness trackers and health apps
-- **👥 Multi-User Profiles**: Family accounts and sharing capabilities
 - **📞 Priority Support**: Direct access to nutrition experts and customer support
 
 ### Technical Features
-- **🔐 OAuth Integration**: Google and Apple Sign-In support
+- **🔐 OAuth Integration**: Google and Apple Sign-In support, with server-side ID token verification
 - **💳 Subscription Management**: Stripe integration with trial periods and billing
-- **📧 Email System**: Welcome emails, password resets, and notifications
+- **📧 Email System**: Password reset codes today (see Email Service — other email types are designed for but not yet built)
 - **🔄 Real-Time Sync**: Immediate data synchronization across devices
 - **📱 Progressive Enhancement**: Graceful degradation for offline scenarios
 
@@ -179,35 +178,39 @@ graph TB
 #### Image Service
 | Technology | Purpose | Version |
 |------------|---------|---------|
-| **Spring Boot** | Web framework | 3.1+ |
-| **Java** | Programming language | 17+ |
-| **OpenAI API** | AI food recognition | v1 |
-| **Redis** | Caching | Latest |
+| **Flask** | Web framework | 3.0+ |
+| **Python** | Programming language | 3.11+ |
+| **Gunicorn** | WSGI server | Latest |
+| **Vision AI Provider** | AI food recognition (kept vendor-neutral in this document) | — |
+| **Redis** | Caching, rate/strike limiting | Latest |
 
 #### Subscription Service
 | Technology | Purpose | Version |
 |------------|---------|---------|
-| **Spring Boot** | Web framework | 3.1+ |
-| **Java** | Programming language | 17+ |
+| **Flask** | Web framework | 3.0+ |
+| **Python** | Programming language | 3.11+ |
+| **Gunicorn** | WSGI server | Latest |
 | **Stripe API** | Payment processing | Latest |
-| **JPA/Hibernate** | ORM | Latest |
+| **psycopg2** | PostgreSQL driver | Latest |
 
 #### Email Service
 | Technology | Purpose | Version |
 |------------|---------|---------|
-| **FastAPI** | Web framework | 0.104+ |
+| **Flask** | Web framework | 3.0+ |
 | **Python** | Programming language | 3.11+ |
-| **SMTP** | Email delivery | - |
-| **Jinja2** | Email templating | Latest |
+| **Gunicorn** | WSGI server | Latest |
+| **SMTP (`smtplib`)** | Email delivery | - |
+| **Redis** | Pub/Sub event delivery from other services | Latest |
 
 ### Infrastructure
 | Technology | Purpose | Version |
 |------------|---------|---------|
-| **Docker** | Containerization | 24.0+ |
-| **Docker Compose** | Multi-container orchestration | 2.21+ |
-| **Nginx** | Load balancer & reverse proxy | 1.25+ |
+| **Docker** | Containerization (one image per service) | 24.0+ |
+| **Docker Compose** | Local multi-container orchestration | 2.21+ |
+| **Railway** | Container hosting and private networking (production) | — |
+| **Cloudflare** | DNS, CDN, and WAF in front of the public domain | — |
 | **PostgreSQL** | Primary database | 14+ |
-| **Redis** | Caching & session storage | 6.2+ |
+| **Redis** | Caching, session/token state, and Pub/Sub | 6.2+ |
 | **MinIO** | Object storage (S3-compatible) | Latest |
 
 ## 📱 Frontend (Android)
@@ -306,7 +309,7 @@ sequenceDiagram
     
     Client->>Gateway: POST /image-service/analyze-food
     Gateway->>Image: Forward with image
-    Image->>Image: Process with OpenAI
+    Image->>Image: Process with vision AI provider
     Image-->>Gateway: Food analysis
     Gateway-->>Client: Analysis results
 ```
@@ -346,14 +349,13 @@ GET    /profile               # User profile
 
 ### 2. User Service
 
-**Purpose**: Manages user profiles, nutrition data, food logging, and analytics
+**Purpose**: Manages user profiles, nutrition data, and food logging
 
 **Key Features**:
 - User profile management
 - Food entry logging
 - Nutrition goal calculation
-- Analytics and reporting
-- Achievement system
+- Achievement system (badges awarded automatically on food-entry activity, surfaced via `GET /profile`)
 - Onboarding flow
 
 **Technology**: Flask + Python + PostgreSQL + MinIO
@@ -361,51 +363,31 @@ GET    /profile               # User profile
 **Endpoints**:
 ```
 # Profile Management
-GET    /profile               # Get user profile
+GET    /profile               # Get user profile (includes stats and earned badges)
 PUT    /profile               # Update profile
-POST   /onboarding           # Save onboarding data
+POST   /onboarding            # Save onboarding data
 
-# Nutrition Management  
-POST   /food-entries         # Log food entry
-GET    /food-entries         # Get food history
-DELETE /food-entries/{id}    # Delete food entry
-PUT    /nutrition-goals      # Update nutrition targets
+# Nutrition Management
+POST   /food-entries          # Log food entry
+GET    /food-entries          # Get food history
+DELETE /food-entries/{id}     # Delete food entry
+PUT    /nutrition-goals       # Update nutrition targets
+GET    /nutrition-summary     # Nutrition summary for a date range
 
-# Analytics
-GET    /analytics/overview        # Overview statistics
-GET    /analytics/calorie-trend   # Calorie trend data
-GET    /analytics/macro-distribution # Macro breakdown
-GET    /analytics/detailed        # Detailed analytics
-POST   /analytics/export          # Export data
+# Image Serving
+GET    /images/{bucket}/{filename}  # Serve a stored image (profile picture, food photo)
 
-# Achievements
-GET    /badges                    # All badges with progress
-GET    /achievements/recent       # Recent achievements
-GET    /dashboard/goals          # Today's goals
-GET    /challenges/weekly        # Weekly challenges
-GET    /statistics/badges        # Badge statistics
-GET    /streaks                  # User streak data
-POST   /goals/complete           # Mark goal complete
-POST   /challenges/claim         # Claim challenge reward
-
-# Dashboard
-GET    /dashboard/summary        # Dashboard overview
-GET    /nutrition-summary        # Nutrition summary
+# Health
+GET    /health
 ```
+*A standalone analytics/badges/streaks/challenges endpoint surface existed earlier in development and was removed during the backend hardening pass documented in this service's README; badge data is returned as part of `GET /profile` rather than through dedicated endpoints.*
 
 **Database Schema**:
-- `users`: User profile information
+- `users`: User profile information (synced from Auth Service)
 - `user_onboarding_data`: Onboarding questionnaire data
 - `user_preferences`: User settings and nutrition goals
 - `food_entries`: Food logging entries
-- `daily_nutrition_summaries`: Daily nutrition aggregates
-- `badge_definitions`: Available badges and requirements
 - `user_badges`: Earned user badges
-- `user_streaks`: Logging streak tracking
-- `daily_goals`: Daily goal tracking
-- `weekly_challenges`: Challenge definitions
-- `user_weekly_challenges`: User challenge participation
-- `user_statistics`: User analytics data
 
 > 📖 **User Service Documentation**: [`/user_service/README.md`](user_service.README.md)
 
@@ -414,27 +396,27 @@ GET    /nutrition-summary        # Nutrition summary
 **Purpose**: AI-powered food recognition and nutritional analysis from photos
 
 **Key Features**:
-- Food image analysis using OpenAI Vision API
-- Nutritional information extraction
-- Confidence scoring
-- Result caching
-- Batch processing capabilities
+- Food image analysis using a vision-language AI model
+- Ingredient detection, recipe generation, and macro suggestions
+- Server-side subscription enforcement on AI-spending endpoints
+- Result caching, upload validation, and non-food rejection
 
-**Technology**: Spring Boot + Java + OpenAI API + Redis
+**Technology**: Flask + Python + Vision AI Provider (kept vendor-neutral) + Redis
 
 **Endpoints**:
 ```
-POST   /analyze-food          # Analyze food image
-GET    /analysis/{id}         # Get analysis results
-POST   /batch-analyze         # Batch image processing
+POST   /analyze-food          # Analyze a food image
+POST   /analyze-ingredients   # Detect ingredients in an image
+POST   /generate-recipes      # Generate recipes (streamed, dual-accept auth)
+POST   /macro-suggestions     # Suggest a macro breakdown
 GET    /health                # Service health check
 ```
 
 **Processing Flow**:
-1. Image upload and validation
-2. OpenAI Vision API processing
-3. Nutritional data extraction
-4. Confidence scoring
+1. Image upload and validation (size limit, well-formed-image check)
+2. Subscription/trial entitlement check
+3. Vision AI provider processing
+4. Nutritional data extraction
 5. Result caching and return
 
 > 📖 **Image Service Documentation**: [`/image_service/README.md`](image_service.README.md)
@@ -445,80 +427,76 @@ GET    /health                # Service health check
 
 **Key Features**:
 - Stripe integration for payment processing
-- Subscription lifecycle management
-- Trial period handling
-- Premium feature gating
-- Billing history and invoices
+- Subscription lifecycle management (trial, active, canceled)
+- Promotional/coupon code redemption
+- Idempotent Stripe webhook processing
 
-**Technology**: Spring Boot + Java + Stripe API + PostgreSQL
+**Technology**: Flask + Python + Stripe API + PostgreSQL
 
 **Endpoints**:
 ```
-GET    /status                # Subscription status
-POST   /start                 # Start subscription
-POST   /cancel                # Cancel subscription
-POST   /update                # Update subscription
-POST   /sync-user             # Sync user data
-GET    /billing-history       # Billing history
-POST   /webhook               # Stripe webhooks
+GET    /plans                    # Available subscription plans
+GET    /status                   # Current subscription status
+POST   /start                    # Start a subscription or trial
+POST   /cancel                   # Cancel subscription (active until period end)
+POST   /payment-method           # Update default payment method
+POST   /auto-renewal             # Enable/disable auto-renewal
+POST   /sync-user                # Service-to-service: sync user from Auth Service
+POST   /coupons/validate         # Validate a coupon code
+POST   /coupons/redeem           # Redeem a coupon code
+POST   /admin/coupons/generate   # Admin: generate coupon codes
+POST   /webhook                  # Stripe webhooks (called directly by Stripe)
+GET    /health                   # Service health check
 ```
 
 **Subscription Tiers**:
-- **Free**: Basic food logging, limited analytics
-- **Premium Monthly**: Full analytics, export, advanced features
-- **Premium Yearly**: All premium features with discount
+- **Free**: Basic food logging
+- **Premium (Monthly / Annual)**: Full feature access, gated server-side on `isSubscribed OR isInTrialPeriod`
 
 > 📖 **Subscription Service Documentation**: [`/subscription_service/README.md`](subscription_service.README.md)
 
 ### 5. Email Service
 
-**Purpose**: Handles all email communications and notifications
+**Purpose**: Sends transactional email, decoupled from the calling service via Redis Pub/Sub
 
 **Key Features**:
-- Password reset emails
-- Welcome emails
-- Subscription notifications
-- Achievement notifications
-- Template-based email system
+- Password reset verification codes (currently the only implemented email type)
+- Asynchronous dispatch via Redis Pub/Sub, so a slow or failing SMTP send doesn't block the caller
+- A direct HTTP endpoint also exists for synchronous internal use, JWT-protected
 
-**Technology**: FastAPI + Python + SMTP + Jinja2
+**Technology**: Flask + Python + SMTP (`smtplib`)
 
 **Endpoints**:
 ```
-POST   /send-email            # Send email
-POST   /send-template         # Send templated email
-GET    /templates             # Available templates
-GET    /health                # Service health check
+POST   /email-service/send-reset-code   # Internal, JWT-protected: send a password reset code
+GET    /health                          # Service health check
 ```
+**Primary path**: other services publish to the `password_reset_events` Redis channel rather than calling the HTTP endpoint directly; the Email Service consumes that channel in a background listener.
 
-**Email Templates**:
-- Welcome email
-- Password reset
-- Subscription confirmation
-- Achievement notifications
-- Weekly summaries
+**Email Types**:
+- Password reset (implemented)
+- Welcome, subscription, and achievement notifications are not yet implemented — the service is designed to be extended for them (see its own README), but this document doesn't claim they exist yet.
 
 > 📖 **Email Service Documentation**: [`/email_service/README.md`](email_service.README.md)
 
 ### 6. API Gateway
 
-**Purpose**: Single entry point, request routing, authentication, and rate limiting
+**Purpose**: Single entry point, request routing, authentication-aware rate limiting
 
 **Key Features**:
 - Request routing to appropriate services
-- JWT token validation
-- Rate limiting and DDoS protection
+- Per-user (JWT-keyed) rate limiting on authenticated routes, falling back to per-IP for unauthenticated ones
 - Request/response logging
 - CORS handling
-- Load balancing
+- Shielding the Email Service from direct external access
 
 **Technology**: Node.js + Express + http-proxy-middleware
 
-**Configuration**:
-- Authentication endpoints: Stricter rate limiting (20 req/15min)
-- OAuth endpoints: Medium rate limiting (30 req/15min)
-- Standard endpoints: Normal rate limiting (100 req/15min)
-- Email service: Internal access only
+**Configuration** (actual tiers, from `routes.js`):
+- Auth (login/register): 20 req/15min
+- Password reset (forgot/verify/reset): 5 req/hour
+- Standard: 100 req/15min
+- Email service: internal access only, not reachable externally
 
 > 📖 **API Gateway Documentation**: [`/api-gateway/README.md`](api-gateway.README.md)
 
@@ -526,7 +504,7 @@ GET    /health                # Service health check
 
 ### Database Per Service Pattern
 
-Each microservice maintains its own database to ensure loose coupling and independent deployments:
+Each microservice owns a logically separate database (own tables, own migrations, no cross-service foreign keys), which is what the local development setup below reflects:
 
 ```mermaid
 graph TB
@@ -543,21 +521,18 @@ graph TB
     end
     
     subgraph "Shared Infrastructure"
-        D[Redis - Caching/Sessions]
+        D[Redis - Caching/Sessions/Pub-Sub]
         E[MinIO - Object Storage]
     end
 ```
 
+**Production note**: On Railway, these logically-separate databases currently run as a single shared Postgres instance (Railway's default single-Postgres-per-project setup) rather than as physically separate database servers — each service still owns its own tables and doesn't read another service's tables directly, but the physical isolation implied by the diagram above is a local-development simplification, not the current production topology. Splitting into per-service Postgres instances is a reasonable follow-up rather than something already done.
+
 ### Data Consistency Strategy
 
-**Eventual Consistency**: Services communicate through events and APIs to maintain data consistency
-- User creation triggers sync across services
-- Subscription changes update user permissions
-- Food entries trigger achievement calculations
-
-**Compensating Transactions**: Handle failures in distributed operations
-- User registration rollback if subscription sync fails
-- Achievement revocation if data is corrected
+**Eventual Consistency**: Services communicate through service-to-service API calls rather than a shared database
+- User creation syncs from Auth Service to User Service and Subscription Service (`/sync-user`, service-authenticated — see the Auth and Subscription Service READMEs for a vulnerability found and fixed in this exact path)
+- Food entries trigger badge-award checks within the same request in User Service
 
 ### Database Schemas
 
@@ -567,7 +542,7 @@ graph TB
 users (
     id VARCHAR(36) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
-    password VARCHAR(255),
+    password VARCHAR(255),              -- nullable: OAuth accounts have none
     name VARCHAR(255),
     auth_provider VARCHAR(50) DEFAULT 'email',
     oauth_provider_id VARCHAR(255),
@@ -576,6 +551,8 @@ users (
     updated_at TIMESTAMP WITH TIME ZONE,
     last_login TIMESTAMP WITH TIME ZONE
 )
+-- password is nullable via a migration-added conditional CHECK constraint:
+-- required for auth_provider = 'email', optional otherwise.
 
 -- Security monitoring
 failed_login_attempts (
@@ -588,47 +565,45 @@ failed_login_attempts (
 
 #### User Database (`userdb`)
 ```sql
--- Core user data and nutrition tracking
--- See user_service/init_db.py for complete schema
--- Key tables: users, food_entries, user_preferences, 
--- badge_definitions, user_badges, daily_goals, etc.
+-- See user_service/init_db.py for the complete schema.
+-- Key tables: users, user_onboarding_data, user_preferences,
+-- food_entries, user_badges.
 ```
 
 #### Subscription Database (`subscriptiondb`)
 ```sql
--- Subscription and billing management
--- Managed by Spring Boot JPA entities
--- Key entities: User, Subscription, PaymentMethod, Invoice
+-- Managed by init_db.py / run_migrations.py (Flask + psycopg2, not an ORM).
+-- Key tables: users, user_payment_profiles, payment_methods, subscriptions,
+-- subscription_payments, processed_webhook_events, promo_codes,
+-- promo_code_redemptions.
 ```
 
 ### Data Migration Strategy
 
 **Database Versioning**: Each service maintains its own migration scripts
-- Flyway for Java services (Image, Subscription)
-- Custom Python scripts for Python services (Auth, User, Email)
-- Version-controlled schema changes
-
-**Backward Compatibility**: All schema changes maintain backward compatibility
-- New columns are nullable or have defaults
-- Deprecated columns are marked but not immediately dropped
-- API versioning supports multiple schema versions
+- Auth Service and Subscription Service use a custom Python migration runner (`run_migrations.py`) with a Postgres advisory lock, so concurrent container starts on the same deploy don't race to apply the same migration twice
+- User Service and Email Service currently rely on `init_db.py`'s `CREATE TABLE IF NOT EXISTS` baseline rather than a separate versioned migration runner
+- Image Service has no persistent schema of its own (Redis-only)
+- The container startup command chains schema setup and the app server with `&&`, not `;`, so a failed migration blocks the deploy rather than starting the app against a schema it doesn't match — this was a specific fix made during the hardening pass covered in the Auth and Subscription Service READMEs
 
 ## 🔧 Setup & Installation
+
+> **Note**: The steps below set up a local, self-hosted stack via Docker Compose for development. The actual production deployment (Railway + Cloudflare) is described in the [Deployment](#-deployment) section and differs in some specifics — notably, production currently runs all services against a single shared Postgres instance rather than the per-service containers shown here (see [Database Architecture](#️-database-architecture)).
 
 ### Prerequisites
 
 - **Docker**: 24.0+ and Docker Compose 2.21+
 - **Node.js**: 18+ (for API Gateway)
-- **Python**: 3.11+ (for Python services)
-- **Java**: 17+ (for Java services)
+- **Python**: 3.11+ (for the five Python backend services)
 - **Android Studio**: Latest version (for Android development)
+- **Xcode**: Latest version (for iOS development — not covered in detail in this document)
 
 ### Quick Start (Docker)
 
 1. **Clone the Repository**
    ```bash
-   git clone https://github.com/your-org/nourishgenie.git
-   cd nourish-genie
+   git clone https://github.com/Oladapo01/FoodTrackerApp.git
+   cd FoodTrackerApp
    ```
 
 2. **Set Up Environment Variables**
@@ -651,7 +626,7 @@ failed_login_attempts (
    echo "your-secure-db-password" > secrets/db_password.txt
    echo "your-jwt-secret-key" > secrets/jwt_secret.txt
    echo "your-redis-password" > secrets/redis_password.txt
-   echo "your-openai-api-key" > secrets/openai_api_key.txt
+   echo "your-vision-api-key" > secrets/vision_api_key.txt
    echo "your-stripe-api-key" > secrets/stripe_api_key.txt
    echo "your-minio-access-key" > secrets/minio_access_key.txt
    echo "your-minio-secret-key" > secrets/minio_secret_key.txt
@@ -659,9 +634,9 @@ failed_login_attempts (
    echo "your-smtp-password" > secrets/smtp_password.txt
    ```
 
-4. **Start the Infrastructure**
+4. **Start the Local Stack**
    ```bash
-   # Start all services in production mode
+   # Start all services via Docker Compose
    docker-compose -f docker-compose.production.yml up -d
    
    # Check service status
@@ -681,14 +656,13 @@ failed_login_attempts (
 6. **Verify Installation**
    ```bash
    # Test API Gateway health
-   curl http://localhost:81/health
+   curl http://localhost:8080/health
    
    # Test individual services
-   curl http://localhost:81/auth-service/health
-   curl http://localhost:81/user-service/health
-   curl http://localhost:81/image-service/health
-   curl http://localhost:81/subscription-service/health
-   curl http://localhost:81/email-service/health
+   curl http://localhost:8080/auth-service/health
+   curl http://localhost:8080/user-service/health
+   curl http://localhost:8080/image-service/health
+   curl http://localhost:8080/subscription-service/health
    ```
 
 ### Development Setup
@@ -699,13 +673,12 @@ failed_login_attempts (
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies for Python services
+# Install dependencies for the Python services (all five backend services)
 pip install -r auth_service/requirements.txt
 pip install -r user_service/requirements.txt
+pip install -r image_service/requirements.txt
+pip install -r subscription_service/requirements.txt
 pip install -r email_service/requirements.txt
-
-# Set up Java development environment
-# Ensure Java 17+ and Maven are installed
 
 # Install Node.js dependencies for API Gateway
 cd api-gateway
@@ -749,7 +722,7 @@ REDIS_PASSWORD_FILE=/run/secrets/redis_password
 
 **External API Keys**:
 ```env
-OPENAI_API_KEY_FILE=/run/secrets/openai_api_key
+VISION_API_KEY_FILE=/run/secrets/vision_api_key
 STRIPE_API_KEY_FILE=/run/secrets/stripe_api_key
 ```
 
@@ -759,14 +732,14 @@ SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USERNAME_FILE=/run/secrets/smtp_username
 SMTP_PASSWORD_FILE=/run/secrets/smtp_password
-SENDER_EMAIL=noreply@foodtracker.example.com
+SENDER_EMAIL=noreply@nourishgenie.co.uk
 ```
 
 ## 📚 API Documentation
 
 ### Authentication
 
-All API requests (except authentication endpoints) require a valid JWT token:
+All API requests (except authentication and OAuth endpoints) require a valid JWT token:
 
 ```bash
 # Include in Authorization header
@@ -774,188 +747,101 @@ Authorization: Bearer <jwt_token>
 
 # Example authenticated request
 curl -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
-     http://localhost:81/user-service/profile
+     http://localhost:8080/user-service/profile
 ```
 
 ### API Response Format
 
-**Success Response**:
+There is no single uniform response envelope across services — each was documented independently rather than against a shared schema, so response shapes vary. Two patterns recur:
+
+**A simple message body**, common for actions:
 ```json
-{
-  "data": { /* response data */ },
-  "message": "Success",
-  "timestamp": "2024-01-15T10:30:00Z"
-}
+{ "message": "Password reset successful" }
 ```
 
-**Error Response**:
+**A stable error slug plus a human-readable message**, used where the client needs to branch on the error type rather than just display it (see the Image and Subscription Service READMEs for the full list of these):
 ```json
-{
-  "error": "Error description",
-  "code": "ERROR_CODE",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "details": { /* additional error details */ }
-}
+{ "error": "subscription_required", "message": "Subscribe to continue analysing meals." }
 ```
 
 ### Rate Limiting
 
+The table below reflects the API Gateway's actual configured tiers (see `routes.js`):
+
 | Endpoint Type | Rate Limit | Window |
 |---------------|------------|---------|
-| Authentication | 20 requests | 15 minutes |
-| OAuth | 30 requests | 15 minutes |
+| Auth (login/register) | 20 requests | 15 minutes |
 | Password Reset | 5 requests | 1 hour |
 | Standard API | 100 requests | 15 minutes |
+| Email Service | Not externally reachable | — |
+
+Authenticated routes are rate-limited per user (keyed on the verified JWT's user ID), not per IP — see the API Gateway README for why that distinction mattered in practice.
 
 ### API Documentation Links
 
-- **OpenAPI/Swagger Docs**: Available at service endpoints
-  - Auth Service: `http://localhost:8081/docs`
-  - User Service: `http://localhost:8082/docs` (if FastAPI)
-  - Image Service: `http://localhost:8083/swagger-ui.html`
-  - Subscription Service: `http://localhost:8084/swagger-ui.html`
-  - Email Service: `http://localhost:8085/docs`
-
-- **Postman Collection**: [`/docs/api/food-tracker.postman_collection.json`](./docs/api/food-tracker.postman_collection.json)
+- **Auth Service**: FastAPI auto-generates interactive docs at `/docs` when run locally (`http://localhost:8081/docs`).
+- The other four backend services are Flask-based and don't auto-generate OpenAPI docs; each service's own README under this repository is the authoritative endpoint reference.
+- **Postman Collection**: [`/docs/api/nourishgenie.postman_collection.json`](./docs/api/nourishgenie.postman_collection.json)
 
 ## 🚢 Deployment
 
-### Production Deployment Architecture
+### Production Deployment
+
+The system is deployed on **Railway**, with **Cloudflare** in front of the public domain and **Names.co.uk** as the domain registrar for `nourishgenie.co.uk`.
 
 ```mermaid
 graph TB
-    subgraph "Load Balancer"
-        LB[Nginx/HAProxy]
-    end
-    
-    subgraph "Application Tier"
-        API1[API Gateway 1]
-        API2[API Gateway 2]
-        AUTH1[Auth Service 1]
-        AUTH2[Auth Service 2]
-        USER1[User Service 1]
-        USER2[User Service 2]
-    end
-    
-    subgraph "Data Tier"
-        DB[(PostgreSQL Cluster)]
-        REDIS[(Redis Cluster)]
-        MINIO[(MinIO Cluster)]
-    end
-    
-    LB --> API1
-    LB --> API2
-    API1 --> AUTH1
-    API1 --> USER1
-    API2 --> AUTH2
-    API2 --> USER2
-    AUTH1 --> DB
-    AUTH2 --> DB
-    USER1 --> DB
-    USER2 --> DB
+    U[User] --> CF[Cloudflare - DNS / CDN / WAF]
+    CF --> WEB[web - Railway service]
+    CF --> GW[api-gateway - Railway service]
+
+    GW --> AUTH[auth-service]
+    GW --> USER[user-service]
+    GW --> IMG[image-service]
+    GW --> SUB[subscription-service]
+
+    AUTH --> PG[(PostgreSQL - Railway)]
+    USER --> PG
+    SUB --> PG
+    AUTH --> RD[(Redis - Railway)]
+    IMG --> RD
+    SUB --> RD
+    EMAIL[email-service] --> RD
+
+    STRIPE[Stripe] -.->|webhook, direct to service URL, bypasses gateway| SUB
 ```
 
-### Deployment Options
+**What this reflects, specifically**:
 
-#### 1. Docker Swarm Deployment
-```bash
-# Initialize swarm
-docker swarm init
+- Each service (`api-gateway`, `auth-service`, `user-service`, `image-service`, `subscription-service`, `email-service`, plus a `web` front end) runs as its own Railway service, built from its own Dockerfile, and communicates with the others over Railway's **private network — which is IPv6-only**. This is not incidental trivia: an IPv4-only DNS readiness check in the Auth Service's startup script caused startup crash loops on Railway specifically because of this, and had to be removed (see the Auth Service README's Production Hardening section).
+- Postgres and Redis are shared Railway-managed instances rather than one per service — see the note in [Database Architecture](#️-database-architecture).
+- Stripe's webhook calls the Subscription Service's Railway URL directly rather than going through the API Gateway, which meant that route didn't benefit from the Gateway's rate limiting and needed its own hardening (signature verification, idempotency) — covered in the Subscription Service README.
+- Each service's container startup command chains schema setup and the app server with `&&` rather than `;`, so a failed migration or schema step blocks the deploy instead of starting the app against a database it doesn't match.
+- Deployment happens via Railway's own build/deploy pipeline (build from each service's Dockerfile on push); there is no separate Kubernetes, Docker Swarm, or multi-cloud deployment path in use, and none is claimed here.
 
-# Deploy stack
-docker stack deploy -c docker-compose.production.yml nourish-genie
+### Local / Self-Hosted Deployment
 
-# Scale services
-docker service scale nourish-genie_auth-service=3
-docker service scale nourish-genie_user-service=3
-```
-
-#### 2. Kubernetes Deployment
-```bash
-# Apply Kubernetes manifests
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/configmaps/
-kubectl apply -f k8s/secrets/
-kubectl apply -f k8s/deployments/
-kubectl apply -f k8s/services/
-kubectl apply -f k8s/ingress.yaml
-
-# Monitor deployment
-kubectl get pods -n nourish-genie
-kubectl logs -f deployment/auth-service -n nourish-genie
-```
-
-#### 3. Cloud Deployment (AWS/GCP/Azure)
-- **Container Services**: ECS, GKE, AKS
-- **Managed Databases**: RDS, Cloud SQL, Azure Database
-- **Object Storage**: S3, Cloud Storage, Blob Storage
-- **Load Balancers**: ALB, Cloud Load Balancer, Azure Load Balancer
-
-### CI/CD Pipeline
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy Nourish Genie
-on:
-  push:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Run tests
-        run: |
-          # Run backend tests
-          # Run Android tests
-          # Run integration tests
-
-  build-and-deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Build Docker images
-        run: |
-          docker build -t nourish-genie/auth-service ./auth_service
-          docker build -t nourish-genie/user-service ./user_service
-          # Build all services
-      
-      - name: Deploy to production
-        run: |
-          # Deploy to production environment
-```
+The `docker-compose.production.yml` setup described in [Setup & Installation](#-setup--installation) is for running the full stack locally or self-hosting outside Railway — it is not the configuration actually running in production, though it exercises the same Docker images.
 
 ### Monitoring and Logging
 
-**Application Monitoring**:
-- **Prometheus**: Metrics collection
-- **Grafana**: Metrics visualization
-- **AlertManager**: Alert handling
-
-**Logging**:
-- **ELK Stack**: Elasticsearch, Logstash, Kibana
-- **Structured Logging**: JSON format across all services
-- **Log Aggregation**: Centralized log collection
+**Current state**: Each service logs structured messages to stdout/stderr (see each service's own README, "Monitoring and Troubleshooting" section, for what to look for) and exposes a `/health` endpoint reporting its own dependency connectivity (database, Redis, MinIO, Stripe, or the vision AI provider, as applicable). Log aggregation and metrics visualization tooling (e.g. Prometheus/Grafana or a hosted equivalent) is not yet in place — this is a genuine gap rather than an implemented feature, noted here rather than glossed over.
 
 **Health Checks**:
-- Service health endpoints
-- Database connectivity checks
-- External API availability
-- Resource utilization monitoring
+- Per-service `/health` endpoints, used for container readiness
+- Dependency connectivity checks embedded in `/health` (database, Redis, MinIO, Stripe, vision AI provider)
 
 ## 🧪 Testing
 
 ### Testing Strategy
 
 #### Unit Tests
-- **Backend**: pytest (Python), JUnit (Java), Jest (Node.js)
+- **Backend**: pytest (all five Python services), Jest (API Gateway, Node.js)
 - **Android**: JUnit, Mockk, Espresso
 - **Coverage Target**: 80%+ code coverage
 
 #### Integration Tests
-- **API Testing**: Postman/Newman, REST Assured
-- **Database Testing**: Testcontainers
+- **API Testing**: Postman/Newman
 - **Service Communication**: Contract testing
 
 #### End-to-End Tests
@@ -969,8 +855,12 @@ jobs:
 # Backend unit tests
 cd auth_service && python -m pytest tests/
 cd user_service && python -m pytest tests/
-cd image_service && mvn test
-cd subscription_service && mvn test
+cd image_service && python -m pytest tests/
+cd subscription_service && python -m pytest tests/
+cd email_service && python -m pytest tests/
+
+# API Gateway tests
+cd api-gateway && npm test
 
 # Android tests
 cd android && ./gradlew test
@@ -995,11 +885,13 @@ artillery run tests/performance/load-test.yml
 
 **Business Metrics**:
 - **User Engagement**: Daily/Monthly active users
-- **Feature Usage**: Food logging frequency, analytics views
+- **Feature Usage**: Food logging frequency
 - **Conversion**: Trial to subscription conversion rates
 - **Retention**: User retention rates
 
-### Alerting Rules
+### Alerting Rules (Illustrative)
+
+The rules below are the kind of alerting this metric set would support with Prometheus in place; per the note in [Deployment](#-deployment), that tooling isn't deployed yet, so this is a target configuration rather than a running one.
 
 ```yaml
 # prometheus/alerts.yml
@@ -1024,7 +916,6 @@ groups:
 **Database Optimization**:
 - Query optimization and indexing
 - Connection pooling
-- Read replicas for analytics
 - Partitioning for large tables
 
 **Caching Strategy**:
@@ -1041,39 +932,36 @@ groups:
 
 ## 🔒 Security
 
+This section describes the security principles the system follows. For the specific vulnerabilities found and fixed to get here — with the reasoning behind each fix — see the **Production Hardening & Incident History** section in each service's own README (Auth, User, Image, Subscription, and API Gateway).
+
 ### Security Measures
 
 #### Authentication & Authorization
 - **JWT Tokens**: Secure, stateless authentication
-- **OAuth2**: Google and Apple Sign-In integration
-- **Role-Based Access**: User permissions and premium features
-- **Token Rotation**: Automatic token refresh
+- **OAuth2**: Google and Apple Sign-In integration, with the ID token verified server-side against the provider's JWKS before a session is issued
+- **Subscription-Gated Features**: Server-side entitlement checks (`isSubscribed OR isInTrialPeriod`) on premium/AI-spending endpoints, not just client-side gating
+- **Token Rotation**: Refresh-token-based session renewal
 
 #### API Security
-- **Rate Limiting**: DDoS protection and abuse prevention
-- **Input Validation**: Comprehensive input sanitization
-- **CORS Configuration**: Proper cross-origin policies
-- **HTTPS Only**: TLS encryption for all communications
+- **Rate Limiting**: Per-user (JWT-keyed) on authenticated routes, per-IP on unauthenticated ones, plus a stricter tier on auth and password-reset endpoints
+- **Input Validation**: Type and range validation on client-supplied data, with a shared validation-error path returning `400` rather than an unhandled exception surfacing as `500`
+- **CORS Configuration**: Restricted rather than wide-open (`CORS(app)` allowing any origin was found and removed in at least one service — see Subscription Service)
+- **HTTPS Only**: TLS terminated at Cloudflare in front of the public domain
 
 #### Data Security
-- **Password Hashing**: bcrypt with appropriate rounds
-- **Data Encryption**: Sensitive data encryption at rest
-- **Secrets Management**: Docker secrets and environment isolation
-- **Database Security**: Connection encryption and access controls
+- **Password Hashing**: bcrypt
+- **Secrets Management**: Docker secrets, with several services refusing to start if a critical secret is missing, too short, or a known placeholder value
+- **Database Security**: Parameterized queries throughout — verified by audit in at least one service (see User Service) rather than assumed
 
 #### Infrastructure Security
-- **Container Security**: Regular image updates and vulnerability scanning
-- **Network Isolation**: Service-to-service communication restrictions
-- **Access Controls**: Principle of least privilege
-- **Audit Logging**: Comprehensive security event logging
+- **Network Isolation**: Services communicate over Railway's private network rather than the public internet
+- **Constant-Time Comparisons**: Admin and internal-service secrets are compared with `hmac.compare_digest` rather than `==`, to avoid a timing side-channel
 
 ### Security Best Practices
 
-1. **Regular Security Updates**: Automated dependency updates
-2. **Vulnerability Scanning**: Container and dependency scanning
-3. **Penetration Testing**: Regular security assessments
-4. **Incident Response**: Security incident response procedures
-5. **Data Privacy**: GDPR compliance and data protection measures
+1. **Regular Security Updates**: Recommended practice; automated dependency scanning (e.g. Dependabot) is not yet configured for this project — noted here rather than claimed as done
+2. **Incident Response**: Security incidents should be reported to `security@nourishgenie.co.uk`
+3. **Data Privacy**: GDPR compliance and data protection measures (see below)
 
 ### Data Privacy & Compliance
 
@@ -1106,12 +994,6 @@ groups:
 - **Docstrings**: Document all functions and classes
 - **Error Handling**: Comprehensive exception handling
 
-#### Backend (Java)
-- **Google Java Style**: Follow Google Java style guide
-- **JavaDoc**: Document public APIs
-- **Null Safety**: Use Optional and null checks
-- **Exception Handling**: Proper exception management
-
 #### Android (Kotlin)
 - **Kotlin Coding Conventions**: Official Kotlin style guide
 - **Compose Guidelines**: Follow Jetpack Compose best practices
@@ -1133,10 +1015,9 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 
 ### Third-Party Licenses
 
-- **OpenAI API**: Subject to OpenAI Terms of Service
+- **Vision AI Provider**: Subject to the provider's Terms of Service (kept vendor-neutral in this document)
 - **Stripe API**: Subject to Stripe Terms of Service
 - **Android Components**: Apache License 2.0
-- **Spring Boot**: Apache License 2.0
 - **FastAPI**: MIT License
 
 ---
@@ -1146,15 +1027,20 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 - **Documentation Issues**: Create an issue in this repository
 - **Bug Reports**: Use the bug report template
 - **Feature Requests**: Use the feature request template
-- **Security Issues**: Email security@foodtracker.example.com
+- **Security Issues**: security@nourishgenie.co.uk
+- **Privacy**: privacy@nourishgenie.co.uk
+- **General Contact**: contact@nourishgenie.co.uk
+- **User Support**: support@nourishgenie.co.uk / help@nourishgenie.co.uk
+- **Admin**: admin@nourishgenie.co.uk
 
 ## 🗺️ Roadmap
 
 ### Current Version (v1.0)
-- ✅ Basic food logging and analytics
+- ✅ Basic food logging
 - ✅ AI-powered food recognition
 - ✅ Achievement system
 - ✅ Subscription management
+- ✅ Android and iOS clients
 
 ### Upcoming Features (v1.1)
 - 🔄 Weight tracking integration
@@ -1163,7 +1049,8 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 - 🔄 Advanced export options
 
 ### Future Releases (v2.0+)
-- 📅 Multi-platform support (iOS, Web)
+- 📅 Web app
+- 📅 Analytics and reporting surface
 - 📅 Integration with fitness trackers
 - 📅 Nutritionist consultation features
 - 📅 Machine learning meal recommendations
